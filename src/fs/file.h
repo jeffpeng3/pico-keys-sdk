@@ -63,6 +63,8 @@
 #define SPECIFY_ANY 0x3
 
 #define EF_META     0xE010
+#define EF_LAYOUT   0xE0FF
+#define FILE_LAYOUT_VERSION 1
 
 #define FILE_NS_HSM      0
 #define FILE_NS_OPENPGP  1

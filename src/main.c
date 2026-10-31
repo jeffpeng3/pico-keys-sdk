@@ -46,6 +46,25 @@
 
 extern int rescue_migrate_keydev(void);
 
+static void ensure_flash_layout(void) {
+    file_scan_flash();
+    file_t *layout = file_search_ns(FILE_NS_SHARED, EF_LAYOUT);
+    const uint8_t version = FILE_LAYOUT_VERSION;
+    if (layout && file_has_data(layout) && file_get_size(layout) == 1 &&
+        file_get_data(layout)[0] == version) {
+        return;
+    }
+    printf("INFO: flash layout reset\n");
+    low_flash_first_init();
+    file_initialize_flash(false);
+    file_scan_flash();
+    layout = file_new_ns(FILE_NS_SHARED, EF_LAYOUT);
+    if (layout) {
+        file_put_data(layout, CONST_BYTE_ARRAY(&version, sizeof(version)));
+        flash_commit();
+    }
+}
+
 app_t apps[16];
 uint8_t num_apps = 0;
 
@@ -186,7 +205,7 @@ int main(void) {
 
     low_flash_init();
 
-    file_scan_flash();
+    ensure_flash_layout();
 
     if (rescue_migrate_keydev() != PICOKEYS_OK) {
         printf("Device attestation key migration failed\n");
