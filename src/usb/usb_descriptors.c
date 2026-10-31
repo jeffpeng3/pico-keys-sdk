@@ -24,6 +24,12 @@
 #include "usb.h"
 #include "serial.h"
 
+#if defined(__has_include)
+# if __has_include("pico_aio_usb_config.h")
+#  include "pico_aio_usb_config.h"
+# endif
+#endif
+
 #ifndef USB_VID
 #define USB_VID   0x2E8A
 #endif
@@ -343,12 +349,19 @@ uint8_t const *tud_descriptor_bos_cb(void) {
 // String Descriptors
 //--------------------------------------------------------------------+
 
+#ifndef USB_MANUFACTURER_STR
+#define USB_MANUFACTURER_STR "Pol Henarejos"
+#endif
+#ifndef USB_PRODUCT_STR
+#define USB_PRODUCT_STR "Pico Key"
+#endif
+
 // array of pointer to string descriptors
 char *string_desc_itf[5] = {0};
 char const *string_desc_arr [] = {
     (const char[]) { 0x09, 0x04 }, // 0: is supported language is English (0x0409)
-    "Pol Henarejos",                     // 1: Manufacturer
-    "Pico Key",                       // 2: Product
+    USB_MANUFACTURER_STR,             // 1: Manufacturer
+    USB_PRODUCT_STR,                  // 2: Product
     "11223344",                      // 3: Serials, should use chip ID
     "MAC"                   // 4: MAC address string, handled separately
     , "HID Interface"
