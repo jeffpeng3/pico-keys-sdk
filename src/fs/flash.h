@@ -37,6 +37,7 @@ extern void flash_set_bounds(uintptr_t start, uintptr_t end);
 extern int flash_write_data_to_file(file_t *file, const_byte_array_t data);
 extern int flash_write_data_to_file_offset(file_t *file, const_byte_array_t data, uint32_t offset);
 extern int flash_program_block(uintptr_t addr, const_byte_array_t data);
+extern int flash_program_byte(uintptr_t addr, uint8_t data);
 extern int flash_program_halfword(uintptr_t addr, uint16_t data);
 extern int flash_program_word(uintptr_t addr, uint32_t data);
 extern int flash_program_uintptr(uintptr_t addr, uintptr_t data);

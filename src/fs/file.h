@@ -64,12 +64,19 @@
 
 #define EF_META     0xE010
 
+#define FILE_NS_HSM      0
+#define FILE_NS_OPENPGP  1
+#define FILE_NS_FIDO     2
+#define FILE_NS_SHARED   3
+#define FILE_NS_COUNT    4
+
 #ifdef _MSC_VER
 __pragma( pack(push, 1) )
 #endif
 typedef struct file {
     uint8_t *data;              //should include 2 bytes len at begining
     uint16_t fid;
+    uint8_t ns;
 }
 #ifndef _MSC_VER
 __attribute__ ((packed))
@@ -93,6 +100,7 @@ typedef struct file_entry {
         struct {
             uint8_t *data;
             uint16_t fid;
+            uint8_t ns;
         }
 #ifndef _MSC_VER
         __attribute__ ((packed))
@@ -120,11 +128,18 @@ file_entry_t;
 extern file_t *currentEF;
 extern file_t *currentDF;
 extern const file_t *selected_applet;
+extern uint8_t current_ns;
 
 extern const file_t *MF;
 extern const file_entry_t *file_last;
 extern bool card_terminated;
 
+extern void file_set_ns(uint8_t ns);
+extern const file_t *file_mf(uint8_t ns);
+extern file_t *file_search_by_fid_ns(uint8_t ns, const uint16_t fid, const file_t *parent, const uint8_t sp);
+extern file_t *file_search_ns(uint8_t ns, const uint16_t fid);
+extern file_t *file_search_by_name_ns(uint8_t ns, const_byte_array_t name);
+extern file_t *file_search_by_path_ns(uint8_t ns, const_byte_array_t path, const file_t *parent);
 extern file_t *file_search_by_fid(const uint16_t fid, const file_t *parent, const uint8_t sp);
 extern file_t *file_search(const uint16_t fid);
 extern file_t *file_search_by_name(const_byte_array_t name);
@@ -148,9 +163,11 @@ extern int file_read_at(const file_t *tf, uint32_t offset, byte_array_t data);
 extern uint8_t file_get_type(const file_t *tf);
 extern int file_put_data(file_t *file, const_byte_array_t data);
 extern int file_put_data_offset(file_t *file, const_byte_array_t data, uint32_t offset);
+extern file_t *file_new_ns(uint8_t ns, uint16_t fid);
 extern file_t *file_new(uint16_t);
 extern int flash_clear_file(file_t *file);
 typedef bool (*file_iter_cb)(file_t *file, void *ctx);
+extern void file_for_each_dynamic_ns(uint8_t ns, file_iter_cb cb, void *ctx);
 extern void file_for_each_dynamic(file_iter_cb cb, void *ctx);
 typedef struct file_delete_result {
     int value;
@@ -163,6 +180,10 @@ file_t *get_parent(file_t *f);
 
 extern bool isUserAuthenticated;
 
+extern byte_array_t meta_find_ns(uint8_t ns, uint16_t fid);
+extern int meta_delete_no_commit_ns(uint8_t ns, uint16_t fid);
+extern int meta_delete_ns(uint8_t ns, uint16_t fid);
+extern int meta_add_ns(uint8_t ns, uint16_t fid, const_byte_array_t data);
 extern byte_array_t meta_find(uint16_t fid);
 extern int meta_delete_no_commit(uint16_t fid);
 extern int meta_delete(uint16_t fid);

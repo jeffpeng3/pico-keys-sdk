@@ -33,7 +33,7 @@ extern const uintptr_t start_data_pool;
 extern const uintptr_t end_rom_pool;
 extern const uintptr_t start_rom_pool;
 #ifndef ENABLE_EMULATION
-file_entry_t sef_phy = {.fid = EF_PHY, .parent = 5, .name = NULL, .type = FILE_TYPE_INTERNAL_EF | FILE_DATA_FLASH | FILE_PERSISTENT, .data = NULL, .ef_structure = FILE_EF_TRANSPARENT, .acl = {0xff}};
+file_entry_t sef_phy = {.fid = EF_PHY, .ns = FILE_NS_SHARED, .parent = 5, .name = NULL, .type = FILE_TYPE_INTERNAL_EF | FILE_DATA_FLASH | FILE_PERSISTENT, .data = NULL, .ef_structure = FILE_EF_TRANSPARENT, .acl = {0xff}};
 file_t *ef_phy = &sef_phy.file;
 #endif
 
@@ -123,7 +123,7 @@ void file_process_fci(const file_t *pe, int fmd) {
     }
     memcpy(res_APDU + res_APDU_size, "\x8A\x01\x05", 3); //life-cycle (5 -> activated)
     res_APDU_size += 3;
-    byte_array_t metadata = meta_find(pe->fid);
+    byte_array_t metadata = meta_find_ns(pe->ns, pe->fid);
     if (metadata.len > 0 && metadata.len <= UINT8_MAX && metadata.data != NULL) {
         uint16_t metadata_len = (uint16_t)metadata.len;
         res_APDU[res_APDU_size++] = 0xA5;
@@ -159,23 +159,27 @@ file_t *get_parent(file_t *f) {
     return &file_entries[parent].file;
 }
 
-file_t *file_search_by_name(const_byte_array_t name) {
+file_t *file_search_by_name_ns(uint8_t ns, const_byte_array_t name) {
     for (file_entry_t *p = file_entries; p != file_last; p++) {
-        if (p->name && *p->name == name.len && memcmp(p->name + 1, name.data, name.len) == 0) {
+        if (p->ns == ns && p->name && *p->name == name.len && memcmp(p->name + 1, name.data, name.len) == 0) {
             return &p->file;
         }
     }
     return NULL;
 }
 
-file_t *file_search_by_fid(const uint16_t fid, const file_t *parent, const uint8_t sp) {
+file_t *file_search_by_name(const_byte_array_t name) {
+    return file_search_by_name_ns(current_ns, name);
+}
+
+file_t *file_search_by_fid_ns(uint8_t ns, const uint16_t fid, const file_t *parent, const uint8_t sp) {
 #ifndef ENABLE_EMULATION
     if (fid == EF_PHY) {
         return ef_phy;
     }
 #endif
     for (file_entry_t *p = file_entries; p != file_last; p++) {
-        if (p->fid != 0x0000 && p->fid == fid) {
+        if (p->ns == ns && p->fid != 0x0000 && p->fid == fid) {
             if (!parent || (parent && is_parent(p, parent))) {
                 if (!sp || sp == SPECIFY_ANY ||
                     (((sp & SPECIFY_EF) && (p->type & (FILE_TYPE_INTERNAL_EF|FILE_TYPE_WORKING_EF))) ||
@@ -188,23 +192,29 @@ file_t *file_search_by_fid(const uint16_t fid, const file_t *parent, const uint8
     return NULL;
 }
 
-static size_t dynamic_hash(uint16_t fid) {
-    return ((uint32_t)fid * 40503u) % DYNAMIC_FILE_SLOTS;
+file_t *file_search_by_fid(const uint16_t fid, const file_t *parent, const uint8_t sp) {
+    return file_search_by_fid_ns(current_ns, fid, parent, sp);
 }
 
-static size_t dynamic_hash_step(uint16_t fid) {
-    return 1u + (((uint32_t)fid * 97u) % (DYNAMIC_FILE_SLOTS - 1u));
+static size_t dynamic_hash(uint8_t ns, uint16_t fid) {
+    uint32_t key = ((uint32_t)ns << 16) | fid;
+    return (key * 40503u) % DYNAMIC_FILE_SLOTS;
 }
 
-static file_t *search_dynamic_file(uint16_t fid) {
-    size_t slot = dynamic_hash(fid);
-    size_t step = dynamic_hash_step(fid);
+static size_t dynamic_hash_step(uint8_t ns, uint16_t fid) {
+    uint32_t key = ((uint32_t)ns << 16) | fid;
+    return 1u + ((key * 97u) % (DYNAMIC_FILE_SLOTS - 1u));
+}
+
+static file_t *search_dynamic_file(uint8_t ns, uint16_t fid) {
+    size_t slot = dynamic_hash(ns, fid);
+    size_t step = dynamic_hash_step(ns, fid);
     for (size_t probes = 0; probes < DYNAMIC_FILE_SLOTS; probes++) {
         file_t *file = &dynamic_file[slot];
         if (file->fid == DYNAMIC_FID_EMPTY) {
             return NULL;
         }
-        if (file->fid == fid) {
+        if (file->fid == fid && file->ns == ns) {
             return file;
         }
         slot = (slot + step) % DYNAMIC_FILE_SLOTS;
@@ -212,10 +222,10 @@ static file_t *search_dynamic_file(uint16_t fid) {
     return NULL;
 }
 
-static file_t *find_dynamic_slot(uint16_t fid) {
+static file_t *find_dynamic_slot(uint8_t ns, uint16_t fid) {
     file_t *deleted = NULL;
-    size_t slot = dynamic_hash(fid);
-    size_t step = dynamic_hash_step(fid);
+    size_t slot = dynamic_hash(ns, fid);
+    size_t step = dynamic_hash_step(ns, fid);
     for (size_t probes = 0; probes < DYNAMIC_FILE_SLOTS; probes++) {
         file_t *file = &dynamic_file[slot];
         if (file->fid == DYNAMIC_FID_EMPTY) {
@@ -229,9 +239,10 @@ static file_t *find_dynamic_slot(uint16_t fid) {
     return deleted;
 }
 
-void file_for_each_dynamic(file_iter_cb cb, void *ctx) {
+void file_for_each_dynamic_ns(uint8_t ns, file_iter_cb cb, void *ctx) {
     for (size_t i = 0; i < DYNAMIC_FILE_SLOTS; i++) {
-        if (dynamic_file[i].fid != DYNAMIC_FID_EMPTY &&
+        if (dynamic_file[i].ns == ns &&
+            dynamic_file[i].fid != DYNAMIC_FID_EMPTY &&
             dynamic_file[i].fid != DYNAMIC_FID_DELETED &&
             file_has_data(&dynamic_file[i]) && !cb(&dynamic_file[i], ctx)) {
             break;
@@ -239,12 +250,20 @@ void file_for_each_dynamic(file_iter_cb cb, void *ctx) {
     }
 }
 
-file_t *file_search(const uint16_t fid) {
-    file_t *ef = file_search_by_fid(fid, NULL, SPECIFY_EF);
+void file_for_each_dynamic(file_iter_cb cb, void *ctx) {
+    file_for_each_dynamic_ns(current_ns, cb, ctx);
+}
+
+file_t *file_search_ns(uint8_t ns, const uint16_t fid) {
+    file_t *ef = file_search_by_fid_ns(ns, fid, NULL, SPECIFY_EF);
     if (ef) {
         return ef;
     }
-    return search_dynamic_file(fid);
+    return search_dynamic_file(ns, fid);
+}
+
+file_t *file_search(const uint16_t fid) {
+    return file_search_ns(current_ns, fid);
 }
 
 static uint8_t make_path_buf(const file_t *pe, byte_array_t buf, const file_t *top) {
@@ -269,12 +288,15 @@ static uint8_t make_path(const file_t *pe, const file_t *top, uint8_t *path) {
     return depth;
 }
 
-file_t *file_search_by_path(const_byte_array_t path_data, const file_t *parent) {
+file_t *file_search_by_path_ns(uint8_t ns, const_byte_array_t path_data, const file_t *parent) {
     uint8_t path[MAX_DEPTH * 2];
     if ((!path_data.data && path_data.len > 0) || path_data.len > sizeof(path)) {
         return NULL;
     }
     for (file_entry_t *p = file_entries; p != file_last; p++) {
+        if (p->ns != ns) {
+            continue;
+        }
         uint8_t depth = make_path(&p->file, parent, path);
         if (path_data.len == depth && memcmp(path, path_data.data, depth) == 0) {
             return &p->file;
@@ -283,10 +305,34 @@ file_t *file_search_by_path(const_byte_array_t path_data, const file_t *parent) 
     return NULL;
 }
 
+file_t *file_search_by_path(const_byte_array_t path_data, const file_t *parent) {
+    return file_search_by_path_ns(current_ns, path_data, parent);
+}
+
 file_t *currentEF = NULL;
 file_t *currentDF = NULL;
 const file_t *selected_applet = NULL;
+uint8_t current_ns = FILE_NS_OPENPGP;
 bool isUserAuthenticated = false;
+
+const file_t *file_mf(uint8_t ns) {
+    for (file_entry_t *p = file_entries; p != file_last; p++) {
+        if (p->ns == ns && p->fid == 0x3f00 && p->parent == 0xff) {
+            return &p->file;
+        }
+    }
+    return NULL;
+}
+
+void file_set_ns(uint8_t ns) {
+    if (ns >= FILE_NS_COUNT) {
+        return;
+    }
+    current_ns = ns;
+    MF = file_mf(ns);
+    currentDF = (file_t *)MF;
+    currentEF = NULL;
+}
 
 bool file_authenticate_action(const file_t *ef, uint8_t op) {
     const file_entry_t *entry = file_static_entry(ef);
@@ -338,7 +384,7 @@ static void scan_region_internal(bool persistent, bool allow_force_restore) {
     }
     bool corrupted = false;
     for (uintptr_t base = flash_read_uintptr(endp); base != 0; base = flash_read_uintptr(base)) {
-        size_t minimum_header = 2 * sizeof(uintptr_t) + sizeof(uint16_t) + sizeof(uint16_t);
+        size_t minimum_header = 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1 + sizeof(uint16_t);
         if (base < startp || base > endp || endp - base < minimum_header) {
             printf("ERROR: invalid flash record address %x\n", (unsigned int)base);
             corrupted = true;
@@ -348,27 +394,28 @@ static void scan_region_internal(bool persistent, bool allow_force_restore) {
         uintptr_t next_addr = flash_read_uintptr(base);
         uintptr_t prev_addr = flash_read_uintptr(base + sizeof(uintptr_t));
         uint16_t fid = flash_read_uint16(base + sizeof(uintptr_t) + sizeof(uintptr_t));
-        uintptr_t length_addr = base + 2 * sizeof(uintptr_t) + sizeof(uint16_t);
+        uint8_t ns = flash_read_uint8(base + 2 * sizeof(uintptr_t) + sizeof(uint16_t));
+        uintptr_t length_addr = base + 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1;
         uint16_t stored_length = flash_read_uint16(length_addr);
         uint32_t length = stored_length == FLASH_FILE_EXTENDED_LENGTH ? flash_read_uint32(length_addr + sizeof(uint16_t)) : stored_length;
         size_t length_size = stored_length == FLASH_FILE_EXTENDED_LENGTH ? FLASH_FILE_EXTENDED_LENGTH_SIZE : FLASH_FILE_LEGACY_LENGTH_SIZE;
-        size_t record_header = 2 * sizeof(uintptr_t) + sizeof(uint16_t) + length_size;
-        if (fid == DYNAMIC_FID_EMPTY || fid == DYNAMIC_FID_DELETED || record_header > endp - base || length > endp - base - record_header || (next_addr != 0 && (next_addr < startp || next_addr >= base)) || (prev_addr != endp && (prev_addr <= base || prev_addr > endp))) {
+        size_t record_header = 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1 + length_size;
+        if (fid == DYNAMIC_FID_EMPTY || fid == DYNAMIC_FID_DELETED || ns >= FILE_NS_COUNT || record_header > endp - base || length > endp - base - record_header || (next_addr != 0 && (next_addr < startp || next_addr >= base)) || (prev_addr != endp && (prev_addr <= base || prev_addr > endp))) {
             printf("ERROR: invalid flash record at %x\n", (unsigned int)base);
             corrupted = true;
             break;
         }
-        printf("[%x] scan fid %x, len %lu\n", (unsigned int)base, fid, (unsigned long)length);
-        file_t *file = (file_t *) file_search_by_fid(fid, NULL, SPECIFY_EF);
+        printf("[%x] scan ns %u fid %x, len %lu\n", (unsigned int)base, ns, fid, (unsigned long)length);
+        file_t *file = (file_t *) file_search_by_fid_ns(ns, fid, NULL, SPECIFY_EF);
         if (!file) {
-            file = file_new(fid);
+            file = file_new_ns(ns, fid);
         }
         if (file && (file_get_type(file) & FILE_DATA_FUNC) != 0) {
             /* Generated files keep their handler in data; never replace it with flash bytes. */
             printf("WARNING: ignoring stored record for generated file %x\n", fid);
         }
         else if (file) {
-            file->data = (uint8_t *) (base + sizeof(uintptr_t) + sizeof(uintptr_t) + sizeof(uint16_t));
+            file->data = (uint8_t *) (base + sizeof(uintptr_t) + sizeof(uintptr_t) + sizeof(uint16_t) + 1);
         }
         if (!persistent) {
             num_files++;
@@ -487,25 +534,30 @@ static int delete_dynamic_file(file_t *f) {
     return PICOKEYS_OK;
 }
 
-file_t *file_new(uint16_t fid) {
+file_t *file_new_ns(uint8_t ns, uint16_t fid) {
     file_t *f;
-    if ((f = file_search(fid))) {
+    if ((f = file_search_ns(ns, fid))) {
         return f;
     }
     if (fid == DYNAMIC_FID_EMPTY || fid == DYNAMIC_FID_DELETED || dynamic_files >= MAX_DYNAMIC_FILES) {
         return NULL;
     }
-    f = find_dynamic_slot(fid);
+    f = find_dynamic_slot(ns, fid);
     if (!f) {
         return NULL;
     }
     memset(f, 0, sizeof(*f));
     f->fid = fid;
+    f->ns = ns;
     dynamic_files++;
     return f;
 }
-byte_array_t meta_find(uint16_t fid) {
-    file_t *ef = file_search(EF_META);
+
+file_t *file_new(uint16_t fid) {
+    return file_new_ns(current_ns, fid);
+}
+byte_array_t meta_find_ns(uint8_t ns, uint16_t fid) {
+    file_t *ef = file_search_ns(ns, EF_META);
     if (!ef) {
         return BYTE_ARRAY(NULL, 0);
     }
@@ -526,8 +578,8 @@ byte_array_t meta_find(uint16_t fid) {
     }
     return BYTE_ARRAY(NULL, 0);
 }
-static int meta_delete_internal(uint16_t fid, bool commit) {
-    file_t *ef = file_search(EF_META);
+static int meta_delete_internal(uint8_t ns, uint16_t fid, bool commit) {
+    file_t *ef = file_search_ns(ns, EF_META);
     if (!ef) {
         return PICOKEYS_ERR_FILE_NOT_FOUND;
     }
@@ -575,15 +627,23 @@ static int meta_delete_internal(uint16_t fid, bool commit) {
     return PICOKEYS_OK;
 }
 
+int meta_delete_ns(uint8_t ns, uint16_t fid) {
+    return meta_delete_internal(ns, fid, true);
+}
+
+int meta_delete_no_commit_ns(uint8_t ns, uint16_t fid) {
+    return meta_delete_internal(ns, fid, false);
+}
+
 int meta_delete(uint16_t fid) {
-    return meta_delete_internal(fid, true);
+    return meta_delete_ns(current_ns, fid);
 }
 
 int meta_delete_no_commit(uint16_t fid) {
-    return meta_delete_internal(fid, false);
+    return meta_delete_no_commit_ns(current_ns, fid);
 }
 
-int meta_add(uint16_t fid, const_byte_array_t data) {
+int meta_add_ns(uint8_t ns, uint16_t fid, const_byte_array_t data) {
     int r;
     uint16_t len = 0;
 
@@ -591,7 +651,7 @@ int meta_add(uint16_t fid, const_byte_array_t data) {
         return PICOKEYS_ERR_NULL_PARAM;
     }
     len = (uint16_t)data.len;
-    file_t *ef = file_search(EF_META);
+    file_t *ef = file_search_ns(ns, EF_META);
     if (!ef) {
         return PICOKEYS_ERR_FILE_NOT_FOUND;
     }
@@ -677,7 +737,7 @@ file_delete_result_t file_delete_no_commit_parts(file_t *ef) {
         return result;
     }
 
-    result.metadata = meta_delete_internal(ef->fid, false);
+    result.metadata = meta_delete_internal(ef->ns, ef->fid, false);
     if (result.metadata == PICOKEYS_ERR_FILE_NOT_FOUND) {
         result.metadata = PICOKEYS_OK;
     }
@@ -719,7 +779,7 @@ int flash_clear_file(file_t *file) {
     uint16_t stored_length = file_read_uint16(file->data);
     size_t length_size = stored_length == FLASH_FILE_EXTENDED_LENGTH ? FLASH_FILE_EXTENDED_LENGTH_SIZE : FLASH_FILE_LEGACY_LENGTH_SIZE;
     uintptr_t payload_addr = (uintptr_t)file->data + length_size;
-    uintptr_t base_addr = (uintptr_t)(file->data - sizeof(uintptr_t) - sizeof(uint16_t) - sizeof(uintptr_t));
+    uintptr_t base_addr = (uintptr_t)(file->data - sizeof(uintptr_t) - sizeof(uint16_t) - 1 - sizeof(uintptr_t));
     uintptr_t prev_addr = flash_read_uintptr(base_addr + sizeof(uintptr_t));
     uintptr_t next_addr = flash_read_uintptr(base_addr);
     //printf("nc %lx->%lx   %lx->%lx\n",prev_addr,flash_read_uintptr(prev_addr),base_addr,next_addr);
@@ -744,4 +804,12 @@ int flash_clear_file(file_t *file) {
     }
     //printf("na %lx->%lx\n",prev_addr,flash_read_uintptr(prev_addr));
     return PICOKEYS_OK;
+}
+
+byte_array_t meta_find(uint16_t fid) {
+    return meta_find_ns(current_ns, fid);
+}
+
+int meta_add(uint16_t fid, const_byte_array_t data) {
+    return meta_add_ns(current_ns, fid, data);
 }

@@ -68,23 +68,23 @@ void flash_set_bounds(uintptr_t start, uintptr_t end) {
 }
 
 static size_t flash_record_length_size(uintptr_t base) {
-    uintptr_t length_addr = base + 2 * sizeof(uintptr_t) + sizeof(uint16_t);
+    uintptr_t length_addr = base + 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1;
     return flash_read_uint16(length_addr) == FLASH_FILE_EXTENDED_LENGTH ? FLASH_FILE_EXTENDED_LENGTH_SIZE : FLASH_FILE_LEGACY_LENGTH_SIZE;
 }
 
 static uint32_t flash_record_payload_size(uintptr_t base) {
-    uintptr_t length_addr = base + 2 * sizeof(uintptr_t) + sizeof(uint16_t);
+    uintptr_t length_addr = base + 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1;
     uint16_t length = flash_read_uint16(length_addr);
     return length == FLASH_FILE_EXTENDED_LENGTH ? flash_read_uint32(length_addr + sizeof(uint16_t)) : length;
 }
 
 static size_t flash_record_size(uintptr_t base) {
-    return 2 * sizeof(uintptr_t) + sizeof(uint16_t) + flash_record_length_size(base) + flash_record_payload_size(base);
+    return 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1 + flash_record_length_size(base) + flash_record_payload_size(base);
 }
 
 static uintptr_t allocate_free_addr(uint32_t size, bool persistent, uintptr_t *publish_at) {
     size_t length_size = size >= FLASH_FILE_EXTENDED_LENGTH ? FLASH_FILE_EXTENDED_LENGTH_SIZE : FLASH_FILE_LEGACY_LENGTH_SIZE;
-    size_t overhead = 2 * sizeof(uintptr_t) + sizeof(uint16_t) + length_size;
+    size_t overhead = 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1 + length_size;
     size_t real_size = 0;
     uintptr_t next_base = 0x0, endp = end_data_pool, startp = start_data_pool;
 
@@ -220,13 +220,17 @@ static int flash_write_data_to_file_internal(file_t *file, const_byte_array_t da
     }
 
     file_t new_file = {
-        .data = (uint8_t *)new_addr + 2 * sizeof(uintptr_t) + sizeof(uint16_t),
-        .fid = file->fid
+        .data = (uint8_t *)new_addr + 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1,
+        .fid = file->fid,
+        .ns = file->ns
     };
     size_t length_size = new_size >= FLASH_FILE_EXTENDED_LENGTH ? FLASH_FILE_EXTENDED_LENGTH_SIZE : FLASH_FILE_LEGACY_LENGTH_SIZE;
     uintptr_t payload = (uintptr_t)new_file.data + length_size;
     int r = flash_program_halfword(new_addr + 2 * sizeof(uintptr_t), new_file.fid);
 
+    if (r == PICOKEYS_OK) {
+        r = flash_program_byte(new_addr + 2 * sizeof(uintptr_t) + sizeof(uint16_t), new_file.ns);
+    }
     if (r == PICOKEYS_OK) {
         r = write_file_length(&new_file, new_size);
     }
@@ -256,7 +260,7 @@ static int flash_write_data_to_file_internal(file_t *file, const_byte_array_t da
         flash_clear_file(&new_file);
         return PICOKEYS_ERR_MEMORY_FATAL;
     }
-    if (replacing && 2 * sizeof(uintptr_t) + sizeof(uint16_t) + length_size + new_size > FLASH_SECTOR_SIZE && !flash_commit_sync(5000u)) {
+    if (replacing && 2 * sizeof(uintptr_t) + sizeof(uint16_t) + 1 + length_size + new_size > FLASH_SECTOR_SIZE && !flash_commit_sync(5000u)) {
         return PICOKEYS_ERR_MEMORY_FATAL;
     }
     *file = new_file;

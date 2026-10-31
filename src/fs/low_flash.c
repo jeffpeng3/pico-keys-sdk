@@ -725,6 +725,10 @@ int flash_program_block(uintptr_t addr, const_byte_array_t data) {
     return PICOKEYS_OK;
 }
 
+int flash_program_byte(uintptr_t addr, uint8_t data) {
+    return flash_program_block(addr, CONST_BYTE_ARRAY((const uint8_t *)&data, sizeof(uint8_t)));
+}
+
 int flash_program_halfword(uintptr_t addr, uint16_t data) {
     return flash_program_block(addr, CONST_BYTE_ARRAY((const uint8_t *)&data, sizeof(uint16_t)));
 }
