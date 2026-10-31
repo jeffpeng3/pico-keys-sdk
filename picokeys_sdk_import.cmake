@@ -15,8 +15,8 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-include(pico-keys-sdk/cmake/version.cmake OPTIONAL)
-include(pico-keys-sdk/cmake/options.cmake OPTIONAL)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/version.cmake OPTIONAL)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/options.cmake OPTIONAL)
 
 option(VIDPID "Set specific VID/PID from a known platform {NitroHSM, NitroFIDO2, NitroStart, NitroPro, Nitro3, Yubikey5, YubikeyNeo, YubiHSM, Gnuk, GnuPG}" "None")
 
@@ -562,7 +562,11 @@ endif()
 
 set(IS_CYW43 0)
 if(PICO_PLATFORM)
-    file(READ ${PICO_SDK_PATH}/src/boards/include/boards/${PICO_BOARD}.h content)
+    if(DEFINED PICO_BOARD_HEADER_FILE AND EXISTS "${PICO_BOARD_HEADER_FILE}")
+        file(READ ${PICO_BOARD_HEADER_FILE} content)
+    else()
+        file(READ ${PICO_SDK_PATH}/src/boards/include/boards/${PICO_BOARD}.h content)
+    endif()
     string(REGEX MATCHALL "CYW43_WL_GPIO_LED_PIN" _ ${content})
     if(CMAKE_MATCH_0)
         message(STATUS "Found cyw43 LED:\t\t true")
