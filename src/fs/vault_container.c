@@ -71,7 +71,7 @@ static int vault_clear_legacy_record(file_t *file) {
         return PICOKEYS_OK;
     }
     if (!file_has_data(file)) {
-        meta_delete_no_commit(file->fid);
+        meta_delete_no_commit_ns(FILE_NS_SHARED, file->fid);
         return PICOKEYS_OK;
     }
 
@@ -229,14 +229,14 @@ static int vault_layout_retire(void *ctx, uint32_t container_id, const file_obje
                 if (vault_layout_record_fid(ctx, container_id, object, &record_fid) != PICOKEYS_OK) {
                     return PICOKEYS_WRONG_DATA;
                 }
-                file_t *record = file_search(record_fid);
+                file_t *record = file_search_ns(FILE_NS_SHARED, record_fid);
                 if (record) {
                     file_delete_no_commit(record);
                 }
             }
         }
         if (slot != target_slot) {
-            file_t *manifest = file_search(vault_manifest_fid(slot));
+            file_t *manifest = file_search_ns(FILE_NS_SHARED, vault_manifest_fid(slot));
             if (manifest) {
                 file_delete_no_commit(manifest);
             }
@@ -255,6 +255,7 @@ static int vault_layout_deactivate(void *ctx, uint32_t container_id) {
 
 static const file_object_container_layout_t vault_layout = {
     .ctx = &vault_state,
+    .ns = FILE_NS_SHARED,
     .namespace_id = PICOKEYS_VAULT_NAMESPACE,
     .container_kind = PICOKEYS_VAULT_CONTAINER_KIND,
     .manifest_fid = vault_layout_manifest_fid,
@@ -406,7 +407,7 @@ static int vault_clear_file(file_t *file) {
     if (!file) {
         return PICOKEYS_OK;
     }
-    meta_delete_no_commit(file->fid);
+    meta_delete_no_commit_ns(FILE_NS_SHARED, file->fid);
     return flash_clear_file(file);
 }
 

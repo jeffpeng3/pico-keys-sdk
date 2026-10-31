@@ -64,6 +64,7 @@ typedef int (*file_object_container_access_t)(void *ctx, const file_object_descr
 
 typedef struct file_object_container_layout {
     void *ctx;
+    uint8_t ns;
     uint16_t namespace_id;
     uint16_t container_kind;
     file_object_container_manifest_fid_t manifest_fid;
