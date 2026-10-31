@@ -542,6 +542,13 @@ static int cmd_reboot_bootsel(void) {
         uint32_t val = EV_RESET;
         queue_try_add(&card_to_usb_q, &val);
     }
+#ifdef PICO_AIO_DEBUG_BOOTSEL
+    else if (P1(apdu) == 0x2) {
+        // Debug-only: reboot to BOOTSEL without user presence.
+        uint32_t val = EV_RESET;
+        queue_try_add(&card_to_usb_q, &val);
+    }
+#endif
     else if (P1(apdu) == 0x0) {
         // Reboot to normal mode
         watchdog_reboot(0, 0, 100);
