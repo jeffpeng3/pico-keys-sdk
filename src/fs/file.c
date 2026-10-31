@@ -499,7 +499,7 @@ file_t *file_new(uint16_t fid) {
     if (!f) {
         return NULL;
     }
-    f->data = NULL;
+    memset(f, 0, sizeof(*f));
     f->fid = fid;
     dynamic_files++;
     return f;
