@@ -31,10 +31,11 @@ typedef struct app {
     int (*select_aid)(struct app *, uint8_t);
     int (*unload)(void);
     bool supports_secure_messaging;
+    uint8_t ns;
 } app_t;
 
 extern bool app_exists(const_byte_array_t aid);
-extern int register_app(int (*)(app_t *, uint8_t), const uint8_t *);
+extern int register_app(int (*)(app_t *, uint8_t), const uint8_t *, uint8_t ns);
 extern int select_app(const_byte_array_t aid);
 
 typedef struct cmd {

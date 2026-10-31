@@ -105,7 +105,7 @@ WEAK int set_atr(void) {
 }
 
 INITIALIZER ( rescue_ctor ) {
-    register_app(rescue_select, rescue_aid);
+    register_app(rescue_select, rescue_aid, FILE_NS_SHARED);
 }
 
 static int rescue_unload(void) {

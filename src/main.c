@@ -77,13 +77,14 @@ bool app_exists(const_byte_array_t aid) {
     return false;
 }
 
-int register_app(int (*select_aid)(app_t *, uint8_t), const uint8_t *aid) {
+int register_app(int (*select_aid)(app_t *, uint8_t), const uint8_t *aid, uint8_t ns) {
     if (app_exists(CONST_BYTE_ARRAY(aid + 1, aid[0]))) {
         return 1;
     }
     if (num_apps < sizeof(apps) / sizeof(app_t)) {
         apps[num_apps].select_aid = select_aid;
         apps[num_apps].aid = aid;
+        apps[num_apps].ns = ns;
         num_apps++;
         return 1;
     }
@@ -96,6 +97,7 @@ int select_app(const_byte_array_t aid) {
         return PICOKEYS_ERR_FILE_NOT_FOUND;
     }
     if (current_app == match) {
+        file_set_ns(match->ns);
         current_app->select_aid(current_app, 0);
         return PICOKEYS_OK;
     }
@@ -103,6 +105,7 @@ int select_app(const_byte_array_t aid) {
         current_app->unload();
     }
     current_app = match;
+    file_set_ns(match->ns);
     if (current_app->select_aid(current_app, 1) == PICOKEYS_OK) {
         return PICOKEYS_OK;
     }
